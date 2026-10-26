@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>forma-smart-brush — Studio Test Page</title>
+  <title>forma-smart-brush — High-Performance Studio</title>
   <style>
     body { background: #121315; color: #dedee4; font-family: sans-serif; display: flex; height: 100vh; margin: 0; overflow: hidden; }
     .sidebar { width: 240px; background: #17181a; border-right: 1px solid #292a2f; display: flex; flex-direction: column; padding: 16px; gap: 16px; }
@@ -49,7 +49,7 @@
 
   <div class="canvas-container">
     <canvas id="canvas" width="800" height="500"></canvas>
-    <div class="hint" id="hint">Line Tool Active: Press SPACEBAR to cycle guidelines (Straight Line, Smooth Curve, Bezier Curve, Half-Circle).</div>
+    <div class="hint" id="hint">Line Tool Active: Press SPACEBAR to cycle guidelines instantly (Start & End Welding active).</div>
   </div>
 
   <script>
@@ -62,6 +62,18 @@
     const elements = [];
     let spaceCycleIndex = 0;
 
+    let cachedEndpoints = [];
+    function updateEndpointsCache() {
+      cachedEndpoints = [];
+      elements.forEach(el => {
+        if (el.points && el.points.length > 0) {
+          cachedEndpoints.push(el.points[0], el.points[el.points.length - 1]);
+        } else if (el.type === 'rect' || el.type === 'circle') {
+          cachedEndpoints.push({ x: el.x || 0, y: el.y || 0 });
+        }
+      });
+    }
+
     document.getElementById('color-picker').addEventListener('input', e => { currentColor = e.target.value; });
 
     document.querySelectorAll('.tool-btn').forEach(btn => {
@@ -69,7 +81,7 @@
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         tool = btn.dataset.tool;
-        document.getElementById('hint').textContent = `${tool === 'line-tool' ? 'Line Tool Active: Press SPACEBAR to cycle guidelines' : 'Shape Tool Active: Drag to create shapes'}`;
+        document.getElementById('hint').textContent = `${tool === 'line-tool' ? 'Line Tool Active: Press SPACEBAR to cycle guidelines instantly' : 'Shape Tool Active: Drag to create shapes'}`;
       });
     });
 
@@ -82,7 +94,7 @@
       });
     });
 
-    document.getElementById('clear').addEventListener('click', () => { elements.length = 0; redraw(); });
+    document.getElementById('clear').addEventListener('click', () => { elements.length = 0; updateEndpointsCache(); redraw(); });
 
     function redraw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -104,10 +116,11 @@
           ctx.beginPath();
           el.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.strokeStyle = el.color; ctx.lineWidth = 3; ctx.stroke();
-        } else if (el.type === 'bezier') {
+        } else if (el.type === 'bezier' || el.type === 'cubic-bezier' || el.type === 'smooth-bezier') {
           ctx.beginPath();
           ctx.moveTo(el.start.x, el.start.y);
-          ctx.quadraticCurveTo(el.cp.x, el.cp.y, el.end.x, el.end.y);
+          if (el.cp2) ctx.bezierCurveTo(el.cp1.x, el.cp1.y, el.cp2.x, el.cp2.y, el.end.x, el.end.y);
+          else ctx.quadraticCurveTo(el.cp.x, el.cp.y, el.end.x, el.end.y);
           ctx.strokeStyle = el.color; ctx.lineWidth = 3; ctx.stroke();
         }
         ctx.restore();
@@ -116,7 +129,15 @@
 
     canvas.addEventListener('pointerdown', e => {
       const rect = canvas.getBoundingClientRect();
-      drawStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      
+      let nearest = null; let minDist = Infinity;
+      cachedEndpoints.forEach(ep => {
+        const d = Math.hypot(point.x - ep.x, point.y - ep.y);
+        if (d < minDist) { minDist = d; nearest = ep; }
+      });
+
+      drawStart = (nearest && minDist < 30) ? nearest : point;
       drawPoints = [drawStart];
     });
 
@@ -139,37 +160,60 @@
 
       if (tool === 'line-tool' && currentPoints.length > 2) {
         const start = currentPoints[0], end = currentPoints[currentPoints.length - 1];
+        
+        let nearestEnd = null; let minEndDist = Infinity;
+        cachedEndpoints.forEach(ep => {
+          const d = Math.hypot(end.x - ep.x, end.y - ep.y);
+          if (d < minEndDist) { minEndDist = d; nearestEnd = ep; }
+        });
+        const finalEnd = (nearestEnd && minEndDist < 30) ? nearestEnd : end;
+
         const minX = Math.min(...currentPoints.map(pt => pt.x)), maxX = Math.max(...currentPoints.map(pt => pt.x));
         const minY = Math.min(...currentPoints.map(pt => pt.y)), maxY = Math.max(...currentPoints.map(pt => pt.y));
         const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
         const w = maxX - minX, h = maxY - minY;
 
-        const midX = (start.x + end.x) / 2, midY = (start.y + end.y) / 2;
+        const midX = (start.x + finalEnd.x) / 2, midY = (start.y + finalEnd.y) / 2;
         const maxDevPoint = currentPoints.reduce((max, pt) => {
           const d = Math.hypot(pt.x - midX, pt.y - midY);
           return d > max.d ? { x: pt.x, y: pt.y, d } : max;
         }, { x: midX, y: midY, d: 0 });
 
         const candidates = [
-          { name: 'Straight Line', prob: 0.90, draw: () => { ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke(); } },
-          { name: 'Smooth Curve', prob: 0.75, draw: () => { ctx.beginPath(); currentPoints.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.stroke(); } },
-          { name: 'Bezier Curve', prob: 0.80, draw: () => { ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.quadraticCurveTo(maxDevPoint.x, maxDevPoint.y, end.x, end.y); ctx.stroke(); } },
-          { name: 'Half-Circle', prob: 0.60, draw: () => { ctx.beginPath(); ctx.arc(cx, cy, Math.max(w, h)/2, Math.PI, 0, false); ctx.stroke(); } }
+          { name: '1. Straight Line (Weld)', prob: 0.95, draw: () => { ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(finalEnd.x, finalEnd.y); ctx.stroke(); } },
+          { name: '2. Smooth Curve', prob: 0.75, draw: () => { ctx.beginPath(); currentPoints.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.stroke(); } },
+          { name: '3. Quadratic Bezier (Arch)', prob: 0.82, draw: () => { ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.quadraticCurveTo(maxDevPoint.x, maxDevPoint.y, finalEnd.x, finalEnd.y); ctx.stroke(); } },
+          { name: '4. Cubic Bezier (S-Curve)', prob: 0.85, draw: () => {
+            const cp1 = { x: start.x + (finalEnd.x - start.x) * 0.33, y: start.y + (finalEnd.y - start.y) * 0.8 };
+            const cp2 = { x: start.x + (finalEnd.x - start.x) * 0.66, y: start.y + (finalEnd.y - start.y) * 0.2 };
+            ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, finalEnd.x, finalEnd.y); ctx.stroke();
+          } },
+          { name: '5. Loop / Bow Bezier', prob: 0.78, draw: () => {
+            const cp1 = { x: start.x - (finalEnd.y - start.y) * 0.5, y: start.y + (finalEnd.x - start.x) * 0.5 };
+            const cp2 = { x: finalEnd.x + (finalEnd.y - start.y) * 0.5, y: finalEnd.y - (finalEnd.x - start.x) * 0.5 };
+            ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, finalEnd.x, finalEnd.y); ctx.stroke();
+          } },
+          { name: '6. Half-Circle', prob: 0.65, draw: () => { ctx.beginPath(); ctx.arc(cx, cy, Math.max(w, h)/2, Math.PI, 0, false); ctx.stroke(); } }
         ];
 
         candidates.forEach((cand, idx) => {
           ctx.save();
           ctx.strokeStyle = '#38bdf8';
           const isSelected = (idx === (spaceCycleIndex % candidates.length));
-          ctx.lineWidth = isSelected ? 2.5 : 1.5;
-          ctx.globalAlpha = isSelected ? 0.95 : Math.max(0.2, cand.prob);
+          ctx.lineWidth = isSelected ? 2.8 : 1.2;
+          ctx.globalAlpha = isSelected ? 0.98 : Math.max(0.15, cand.prob * 0.6);
           ctx.setLineDash([4, 4]);
           cand.draw();
-          ctx.fillStyle = '#38bdf8'; ctx.globalAlpha = isSelected ? 1.0 : cand.prob;
+          ctx.fillStyle = '#38bdf8'; ctx.globalAlpha = isSelected ? 1.0 : 0.6;
           ctx.font = '11px sans-serif';
-          ctx.fillText(`${cand.name} (${Math.round(cand.prob * 100)}% match)${isSelected ? ' [SPACE Active]' : ''}`, minX, minY - 6 - (idx * 14));
+          ctx.fillText(`${cand.name} ${isSelected ? '[SPACE Active]' : ''} (${Math.round(cand.prob * 100)}%)`, minX, minY - 6 - (idx * 14));
           ctx.restore();
         });
+
+        if (nearestEnd) {
+          ctx.save(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
+          ctx.arc(nearestEnd.x, nearestEnd.y, 8, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+        }
       } else if (tool === 'shape-tool') {
         const minX = Math.min(...currentPoints.map(pt => pt.x)), maxX = Math.max(...currentPoints.map(pt => pt.x));
         const minY = Math.min(...currentPoints.map(pt => pt.y)), maxY = Math.max(...currentPoints.map(pt => pt.y));
@@ -191,25 +235,42 @@
 
       if (tool === 'line-tool') {
         const candidates = [
-          { id: 'line', prob: 0.90 },
+          { id: 'line', prob: 0.95 },
           { id: 'curve', prob: 0.75 },
-          { id: 'bezier', prob: 0.80 },
-          { id: 'half-circle', prob: 0.60 }
+          { id: 'quadratic', prob: 0.82 },
+          { id: 'cubic', prob: 0.85 },
+          { id: 'loop', prob: 0.78 },
+          { id: 'half-circle', prob: 0.65 }
         ];
         const selected = candidates[spaceCycleIndex % candidates.length];
         const start = raw[0], end = raw[raw.length - 1];
 
+        let nearestEnd = null; let minEndDist = Infinity;
+        cachedEndpoints.forEach(ep => {
+          const d = Math.hypot(end.x - ep.x, end.y - ep.y);
+          if (d < minEndDist) { minEndDist = d; nearestEnd = ep; }
+        });
+        const finalEnd = (nearestEnd && minEndDist < 30) ? nearestEnd : end;
+
         if (selected.id === 'line') {
-          elements.push({ type: 'line', points: [start, end], color: currentColor });
+          elements.push({ type: 'line', points: [start, finalEnd], color: currentColor });
         } else if (selected.id === 'curve') {
           elements.push({ type: 'curve', points: raw, color: currentColor });
-        } else if (selected.id === 'bezier') {
-          const midX = (start.x + end.x) / 2, midY = (start.y + end.y) / 2;
+        } else if (selected.id === 'quadratic') {
+          const midX = (start.x + finalEnd.x) / 2, midY = (start.y + finalEnd.y) / 2;
           const maxDevPoint = raw.reduce((max, pt) => {
             const d = Math.hypot(pt.x - midX, pt.y - midY);
             return d > max.d ? { x: pt.x, y: pt.y, d } : max;
           }, { x: midX, y: midY, d: 0 });
-          elements.push({ type: 'bezier', start, cp: maxDevPoint, end, color: currentColor });
+          elements.push({ type: 'bezier', start, cp: maxDevPoint, end: finalEnd, color: currentColor });
+        } else if (selected.id === 'cubic') {
+          const cp1 = { x: start.x + (finalEnd.x - start.x) * 0.33, y: start.y + (finalEnd.y - start.y) * 0.8 };
+          const cp2 = { x: start.x + (finalEnd.x - start.x) * 0.66, y: start.y + (finalEnd.y - start.y) * 0.2 };
+          elements.push({ type: 'cubic-bezier', start, cp1, cp2, end: finalEnd, color: currentColor });
+        } else if (selected.id === 'loop') {
+          const cp1 = { x: start.x - (finalEnd.y - start.y) * 0.5, y: start.y + (finalEnd.x - start.x) * 0.5 };
+          const cp2 = { x: finalEnd.x + (finalEnd.y - start.y) * 0.5, y: finalEnd.y - (finalEnd.x - start.x) * 0.5 };
+          elements.push({ type: 'cubic-bezier', start, cp1, cp2, end: finalEnd, color: currentColor });
         } else if (selected.id === 'half-circle') {
           const minX = Math.min(...raw.map(pt => pt.x)), maxX = Math.max(...raw.map(pt => pt.x));
           const minY = Math.min(...raw.map(pt => pt.y)), maxY = Math.max(...raw.map(pt => pt.y));
@@ -234,6 +295,7 @@
       }
 
       drawStart = null; drawPoints = []; spaceCycleIndex = 0;
+      updateEndpointsCache();
       redraw();
     });
 
@@ -242,9 +304,9 @@
         e.preventDefault();
         if (tool === 'line-tool') {
           spaceCycleIndex++;
-          const names = ['Straight Line', 'Smooth Curve', 'Bezier Curve', 'Half-Circle'];
+          const names = ['Straight Line (Weld)', 'Smooth Curve', 'Quadratic Bezier (Arch)', 'Cubic Bezier (S-Curve)', 'Loop / Bow Bezier', 'Half-Circle'];
           const activeName = names[spaceCycleIndex % names.length];
-          document.getElementById('hint').textContent = `SPACEBAR cycled guideline -> Active: ${activeName}`;
+          document.getElementById('hint').textContent = `SPACEBAR cycled instantly -> Active: ${activeName}`;
         }
       } else if (e.key.toLowerCase() === 'l') {
         tool = 'line-tool';
