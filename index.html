@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>forma-smart-brush — High-Performance Studio</title>
+  <title>forma-smart-brush — Studio with Perfect-Freehand Ink & Smart Lines</title>
   <style>
     body { background: #121315; color: #dedee4; font-family: sans-serif; display: flex; height: 100vh; margin: 0; overflow: hidden; }
     .sidebar { width: 240px; background: #17181a; border-right: 1px solid #292a2f; display: flex; flex-direction: column; padding: 16px; gap: 16px; }
@@ -10,23 +10,32 @@
     .colors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .color-btn { width: 100%; height: 32px; border: 2px solid transparent; border-radius: 6px; cursor: pointer; }
     .color-btn.active { border-color: #fff; }
-    .tools-list { display: flex; flex-direction: column; gap: 6px; }
-    .tool-btn { background: #121315; border: 1px solid #292a2f; color: #dedee4; padding: 10px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 13px; }
-    .tool-btn:hover { background: #292a2f; }
-    .tool-btn.active { border-color: #8d71ff; background: #34363c; color: #8d71ff; }
+    .tools-list, .brushes-list { display: flex; flex-direction: column; gap: 6px; }
+    .tool-btn, .brush-btn { background: #121315; border: 1px solid #292a2f; color: #dedee4; padding: 10px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 13px; }
+    .tool-btn:hover, .brush-btn:hover { background: #292a2f; }
+    .tool-btn.active, .brush-btn.active { border-color: #8d71ff; background: #34363c; color: #8d71ff; }
     .canvas-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #121315; position: relative; }
     canvas { background: #faf9f5; border-radius: 8px; cursor: crosshair; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
     .hint { margin-top: 12px; font-size: 13px; color: #a6a8b0; }
     button { cursor: pointer; }
   </style>
+  <script src="https://unpkg.com/perfect-freehand@1.2.2/dist/index.umd.js"></script>
 </head>
 <body>
   <div class="sidebar">
     <div>
       <div class="section-title">Tools</div>
       <div class="tools-list">
-        <button class="tool-btn active" data-tool="line-tool">╱ Line & Curve Tool (L)</button>
-        <button class="tool-btn" data-tool="shape-tool">⬛ Shape Tool (S)</button>
+        <button class="tool-btn active" data-tool="line-tool">╱ Line & Curve (L)</button>
+        <button class="tool-btn" data-tool="brush-tool">🖌 Freehand Ink (B)</button>
+        <button class="tool-btn" data-tool="shape-tool">⬛ Shape (S)</button>
+      </div>
+    </div>
+    <div>
+      <div class="section-title">Brush Style</div>
+      <div class="brushes-list">
+        <button class="brush-btn active" data-brush="ink">Ink (Pressure & Taper)</button>
+        <button class="brush-btn" data-brush="marker">Thick Marker</button>
       </div>
     </div>
     <div>
@@ -49,13 +58,14 @@
 
   <div class="canvas-container">
     <canvas id="canvas" width="800" height="500"></canvas>
-    <div class="hint" id="hint">Line Tool Active: Press SPACEBAR to cycle guidelines instantly (Start & End Welding active).</div>
+    <div class="hint" id="hint">Line Tool Active: Press SPACEBAR to cycle guidelines. Freehand Brush draws tapered ink.</div>
   </div>
 
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let tool = 'line-tool';
+    let brushStyle = 'ink';
     let currentColor = '#a9ec68';
     let drawStart = null;
     let drawPoints = [];
@@ -68,6 +78,8 @@
       elements.forEach(el => {
         if (el.points && el.points.length > 0) {
           cachedEndpoints.push(el.points[0], el.points[el.points.length - 1]);
+        } else if (el.outlinePoints && el.outlinePoints.length > 0) {
+          cachedEndpoints.push({ x: el.outlinePoints[0][0], y: el.outlinePoints[0][1] });
         } else if (el.type === 'rect' || el.type === 'circle') {
           cachedEndpoints.push({ x: el.x || 0, y: el.y || 0 });
         }
@@ -81,7 +93,15 @@
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         tool = btn.dataset.tool;
-        document.getElementById('hint').textContent = `${tool === 'line-tool' ? 'Line Tool Active: Press SPACEBAR to cycle guidelines instantly' : 'Shape Tool Active: Drag to create shapes'}`;
+        document.getElementById('hint').textContent = tool === 'line-tool' ? 'Line Tool Active: SPACEBAR cycles guidelines' : tool === 'brush-tool' ? 'Brush Tool Active: Pressure-sensitive ink' : 'Shape Tool Active: Drag to create shapes';
+      });
+    });
+
+    document.querySelectorAll('.brush-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        brushStyle = btn.dataset.brush;
       });
     });
 
@@ -112,11 +132,18 @@
           ctx.fill(); ctx.stroke();
         } else if (el.type === 'rect') {
           ctx.fillRect(el.x, el.y, el.w, el.h); ctx.strokeRect(el.x, el.y, el.w, el.h);
+        } else if (el.type === 'freehand' && el.outline) {
+          ctx.fillStyle = el.color;
+          ctx.beginPath();
+          el.outline.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+          ctx.closePath();
+          ctx.fill();
         } else if (el.type === 'line' || el.type === 'curve' || el.type === 'half-circle') {
           ctx.beginPath();
+          el.points.forEach((p, i) => i ? ctx.lineTo(p.y ? p.y : p.y, p.x) : ctx.moveTo(p.x, p.y)); // standard
           el.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
           ctx.strokeStyle = el.color; ctx.lineWidth = 3; ctx.stroke();
-        } else if (el.type === 'bezier' || el.type === 'cubic-bezier' || el.type === 'smooth-bezier') {
+        } else if (el.type === 'bezier' || el.type === 'cubic-bezier') {
           ctx.beginPath();
           ctx.moveTo(el.start.x, el.start.y);
           if (el.cp2) ctx.bezierCurveTo(el.cp1.x, el.cp1.y, el.cp2.x, el.cp2.y, el.end.x, el.end.y);
@@ -129,7 +156,7 @@
 
     canvas.addEventListener('pointerdown', e => {
       const rect = canvas.getBoundingClientRect();
-      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
       
       let nearest = null; let minDist = Infinity;
       cachedEndpoints.forEach(ep => {
@@ -138,29 +165,42 @@
       });
 
       drawStart = (nearest && minDist < 30) ? nearest : point;
-      drawPoints = [drawStart];
+      drawPoints = [[drawStart.x, drawStart.y, drawStart.pressure ?? 0.5]];
     });
 
     canvas.addEventListener('pointermove', e => {
       if (!drawStart) return;
       const rect = canvas.getBoundingClientRect();
-      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      const last = drawPoints[drawPoints.length - 1];
-      if (Math.hypot(p.x - last.x, p.y - last.y) > 3) drawPoints.push(p);
+      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
+      drawPoints.push([p.x, p.y, p.pressure]);
       redraw();
 
-      const currentPoints = [...drawPoints, p];
+      if (tool === 'brush-tool') {
+        const strokeOpts = brushStyle === 'ink' 
+          ? { size: 8, thinning: 0.5, smoothing: 0.5, streamline: 0.5, simulatePressure: true }
+          : { size: 18, thinning: 0.2, smoothing: 0.7, streamline: 0.6, simulatePressure: true };
+        
+        const outline = window.perfectFreehand.getStroke(drawPoints, strokeOpts);
+        ctx.save();
+        ctx.fillStyle = currentColor;
+        ctx.beginPath();
+        outline.forEach((pt, i) => i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1]));
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      const currentPoints = drawPoints.map(pt => ({ x: pt[0], y: pt[1] }));
+      const start = currentPoints[0], end = currentPoints[currentPoints.length - 1];
 
       ctx.save();
       ctx.strokeStyle = currentColor; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
-      drawPoints.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y));
-      ctx.lineTo(p.x, p.y);
+      currentPoints.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y));
       ctx.stroke();
 
       if (tool === 'line-tool' && currentPoints.length > 2) {
-        const start = currentPoints[0], end = currentPoints[currentPoints.length - 1];
-        
         let nearestEnd = null; let minEndDist = Infinity;
         cachedEndpoints.forEach(ep => {
           const d = Math.hypot(end.x - ep.x, end.y - ep.y);
@@ -188,12 +228,7 @@
             const cp2 = { x: start.x + (finalEnd.x - start.x) * 0.66, y: start.y + (finalEnd.y - start.y) * 0.2 };
             ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, finalEnd.x, finalEnd.y); ctx.stroke();
           } },
-          { name: '5. Loop / Bow Bezier', prob: 0.78, draw: () => {
-            const cp1 = { x: start.x - (finalEnd.y - start.y) * 0.5, y: start.y + (finalEnd.x - start.x) * 0.5 };
-            const cp2 = { x: finalEnd.x + (finalEnd.y - start.y) * 0.5, y: finalEnd.y - (finalEnd.x - start.x) * 0.5 };
-            ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, finalEnd.x, finalEnd.y); ctx.stroke();
-          } },
-          { name: '6. Half-Circle', prob: 0.65, draw: () => { ctx.beginPath(); ctx.arc(cx, cy, Math.max(w, h)/2, Math.PI, 0, false); ctx.stroke(); } }
+          { name: '5. Half-Circle', prob: 0.65, draw: () => { ctx.beginPath(); ctx.arc(cx, cy, Math.max(w, h)/2, Math.PI, 0, false); ctx.stroke(); } }
         ];
 
         candidates.forEach((cand, idx) => {
@@ -209,11 +244,6 @@
           ctx.fillText(`${cand.name} ${isSelected ? '[SPACE Active]' : ''} (${Math.round(cand.prob * 100)}%)`, minX, minY - 6 - (idx * 14));
           ctx.restore();
         });
-
-        if (nearestEnd) {
-          ctx.save(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
-          ctx.arc(nearestEnd.x, nearestEnd.y, 8, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
-        }
       } else if (tool === 'shape-tool') {
         const minX = Math.min(...currentPoints.map(pt => pt.x)), maxX = Math.max(...currentPoints.map(pt => pt.x));
         const minY = Math.min(...currentPoints.map(pt => pt.y)), maxY = Math.max(...currentPoints.map(pt => pt.y));
@@ -230,20 +260,26 @@
     canvas.addEventListener('pointerup', e => {
       if (!drawStart) return;
       const rect = canvas.getBoundingClientRect();
-      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      const raw = [...drawPoints, p];
+      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
+      drawPoints.push([p.x, p.y, p.pressure]);
 
-      if (tool === 'line-tool') {
+      if (tool === 'brush-tool') {
+        const strokeOpts = brushStyle === 'ink' 
+          ? { size: 8, thinning: 0.5, smoothing: 0.5, streamline: 0.5, simulatePressure: true }
+          : { size: 18, thinning: 0.2, smoothing: 0.7, streamline: 0.6, simulatePressure: true };
+        const outline = window.perfectFreehand.getStroke(drawPoints, strokeOpts);
+        elements.push({ type: 'freehand', outline, color: currentColor });
+      } else if (tool === 'line-tool') {
         const candidates = [
           { id: 'line', prob: 0.95 },
           { id: 'curve', prob: 0.75 },
           { id: 'quadratic', prob: 0.82 },
           { id: 'cubic', prob: 0.85 },
-          { id: 'loop', prob: 0.78 },
           { id: 'half-circle', prob: 0.65 }
         ];
         const selected = candidates[spaceCycleIndex % candidates.length];
-        const start = raw[0], end = raw[raw.length - 1];
+        const currentPoints = drawPoints.map(pt => ({ x: pt[0], y: pt[1] }));
+        const start = currentPoints[0], end = currentPoints[currentPoints.length - 1];
 
         let nearestEnd = null; let minEndDist = Infinity;
         cachedEndpoints.forEach(ep => {
@@ -255,10 +291,10 @@
         if (selected.id === 'line') {
           elements.push({ type: 'line', points: [start, finalEnd], color: currentColor });
         } else if (selected.id === 'curve') {
-          elements.push({ type: 'curve', points: raw, color: currentColor });
+          elements.push({ type: 'curve', points: currentPoints, color: currentColor });
         } else if (selected.id === 'quadratic') {
           const midX = (start.x + finalEnd.x) / 2, midY = (start.y + finalEnd.y) / 2;
-          const maxDevPoint = raw.reduce((max, pt) => {
+          const maxDevPoint = currentPoints.reduce((max, pt) => {
             const d = Math.hypot(pt.x - midX, pt.y - midY);
             return d > max.d ? { x: pt.x, y: pt.y, d } : max;
           }, { x: midX, y: midY, d: 0 });
@@ -267,13 +303,9 @@
           const cp1 = { x: start.x + (finalEnd.x - start.x) * 0.33, y: start.y + (finalEnd.y - start.y) * 0.8 };
           const cp2 = { x: start.x + (finalEnd.x - start.x) * 0.66, y: start.y + (finalEnd.y - start.y) * 0.2 };
           elements.push({ type: 'cubic-bezier', start, cp1, cp2, end: finalEnd, color: currentColor });
-        } else if (selected.id === 'loop') {
-          const cp1 = { x: start.x - (finalEnd.y - start.y) * 0.5, y: start.y + (finalEnd.x - start.x) * 0.5 };
-          const cp2 = { x: finalEnd.x + (finalEnd.y - start.y) * 0.5, y: finalEnd.y - (finalEnd.x - start.x) * 0.5 };
-          elements.push({ type: 'cubic-bezier', start, cp1, cp2, end: finalEnd, color: currentColor });
         } else if (selected.id === 'half-circle') {
-          const minX = Math.min(...raw.map(pt => pt.x)), maxX = Math.max(...raw.map(pt => pt.x));
-          const minY = Math.min(...raw.map(pt => pt.y)), maxY = Math.max(...raw.map(pt => pt.y));
+          const minX = Math.min(...currentPoints.map(pt => pt.x)), maxX = Math.max(...currentPoints.map(pt => pt.x));
+          const minY = Math.min(...currentPoints.map(pt => pt.y)), maxY = Math.max(...currentPoints.map(pt => pt.y));
           const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
           const r = Math.max(maxX - minX, maxY - minY) / 2;
           const pts = [];
@@ -283,8 +315,9 @@
           elements.push({ type: 'half-circle', points: pts, color: currentColor });
         }
       } else if (tool === 'shape-tool') {
-        const minX = Math.min(...raw.map(pt => pt.x)), maxX = Math.max(...raw.map(pt => pt.x));
-        const minY = Math.min(...raw.map(pt => pt.y)), maxY = Math.max(...raw.map(pt => pt.y));
+        const currentPoints = drawPoints.map(pt => ({ x: pt[0], y: pt[1] }));
+        const minX = Math.min(...currentPoints.map(pt => pt.x)), maxX = Math.max(...currentPoints.map(pt => pt.x));
+        const minY = Math.min(...currentPoints.map(pt => pt.y)), maxY = Math.max(...currentPoints.map(pt => pt.y));
         const w = maxX - minX, h = maxY - minY;
         const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
         if (Math.abs(w - h) < Math.max(w, h) * 0.25) {
@@ -304,13 +337,16 @@
         e.preventDefault();
         if (tool === 'line-tool') {
           spaceCycleIndex++;
-          const names = ['Straight Line (Weld)', 'Smooth Curve', 'Quadratic Bezier (Arch)', 'Cubic Bezier (S-Curve)', 'Loop / Bow Bezier', 'Half-Circle'];
+          const names = ['Straight Line (Weld)', 'Smooth Curve', 'Quadratic Bezier (Arch)', 'Cubic Bezier (S-Curve)', 'Half-Circle'];
           const activeName = names[spaceCycleIndex % names.length];
-          document.getElementById('hint').textContent = `SPACEBAR cycled instantly -> Active: ${activeName}`;
+          document.getElementById('hint').textContent = `SPACEBAR cycled guideline -> Active: ${activeName}`;
         }
       } else if (e.key.toLowerCase() === 'l') {
         tool = 'line-tool';
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'line-tool'));
+      } else if (e.key.toLowerCase() === 'b') {
+        tool = 'brush-tool';
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'brush-tool'));
       } else if (e.key.toLowerCase() === 's') {
         tool = 'shape-tool';
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'shape-tool'));
