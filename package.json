@@ -2,7 +2,11 @@
   "name": "forma-smart-brush",
   "version": "1.0.0",
   "description": "Smart HTML5 Canvas drawing brush with probability guidelines, Bezier curves, endpoint auto-welding, and Spacebar cycling",
-  "main": "src/smart-brush.js",
+  "main": "dist/forma-smart-brush.umd.js",
+  "module": "src/smart-brush.js",
+  "scripts": {
+    "build": "node build.js"
+  },
   "keywords": [
     "canvas",
     "drawing",
