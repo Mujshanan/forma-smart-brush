@@ -2,29 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>forma-smart-brush — Test Page</title>
+  <title>forma-smart-brush — Standalone Bundle Test Page</title>
   <style>
     body { background: #121315; color: #dedee4; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     canvas { background: #faf9f5; border-radius: 8px; cursor: crosshair; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
     .hint { margin-top: 12px; font-size: 13px; color: #a6a8b0; }
   </style>
-  <!-- Import Map for browser-native module resolution -->
-  <script type="importmap">
-    {
-      "imports": {
-        "perfect-freehand": "https://esm.sh/perfect-freehand@1.2.2"
-      }
-    }
-  </script>
+  <!-- Load packaged UMD bundle directly without ESM import resolution issues -->
+  <script src="./dist/forma-smart-brush.umd.js"></script>
 </head>
 <body>
   <canvas id="canvas" width="800" height="500"></canvas>
-  <div class="hint">forma-smart-brush test page: Draw fluid pressure-sensitive ink strokes!</div>
+  <div class="hint">forma-smart-brush test page: Using UMD bundle. Draw pressure-sensitive ink strokes!</div>
 
-  <script type="module">
-    import { SmartBrushCanvas } from './src/smart-brush.js';
+  <script>
     const canvas = document.getElementById('canvas');
-    const smartBrush = new SmartBrushCanvas(canvas, { color: '#a9ec68', weldDistance: 30 });
+    const smartBrush = new window.FormaSmartBrush.SmartBrushCanvas(canvas, { color: '#a9ec68', weldDistance: 30 });
   </script>
 </body>
 </html>
