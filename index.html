@@ -19,6 +19,8 @@
     .hint { margin-top: 12px; font-size: 13px; color: #a6a8b0; }
     button { cursor: pointer; }
   </style>
+  <!-- Load perfect-freehand UMD and forma-smart-brush UMD -->
+  <script src="https://unpkg.com/perfect-freehand@1.2.2/dist/index.umd.js"></script>
   <script src="./dist/forma-smart-brush.umd.js"></script>
 </head>
 <body>
@@ -56,16 +58,19 @@
   </div>
 
   <script>
+    // Ensure getStroke is globally available for the UMD bundle
+    if (window.perfectFreehand && !window.getStroke) {
+      window.getStroke = window.perfectFreehand.getStroke;
+    }
+
     const canvas = document.getElementById('canvas');
     let smartBrush = new window.FormaSmartBrush.SmartBrushCanvas(canvas, { color: '#a9ec68', weldDistance: 30, size: 8 });
 
-    // Color picker events
     document.querySelectorAll('.color-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        const color = btn.dataset.color;
-        smartBrush.options.color = color;
+        smartBrush.options.color = btn.dataset.color;
       });
     });
 
@@ -73,7 +78,6 @@
       smartBrush.options.color = e.target.value;
     });
 
-    // Brush style events
     document.querySelectorAll('.brush-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));

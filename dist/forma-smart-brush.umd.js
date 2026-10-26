@@ -4,8 +4,6 @@
   (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.FormaSmartBrush = {}));
 })(this, (function (exports) { 'use strict';
 
-import { getStroke } from 'perfect-freehand';
-
 class SmartBrushCanvas {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
@@ -18,6 +16,10 @@ class SmartBrushCanvas {
     this.activeTool = 'line-tool';
 
     this.initEvents();
+  }
+
+  getStrokeFn() {
+    return window.getStroke || (window.perfectFreehand && window.perfectFreehand.getStroke);
   }
 
   getExistingEndpoints() {
@@ -79,12 +81,14 @@ class SmartBrushCanvas {
 
     this.canvas.addEventListener('pointermove', e => {
       if (!this.drawStart) return;
+      const getStroke = this.getStrokeFn();
+      if (!getStroke) return;
+
       const rect = this.canvas.getBoundingClientRect();
       const p = { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
       this.drawPoints.push([p.x, p.y, p.pressure]);
       this.redraw();
 
-      // Render pressure-sensitive perfect-freehand stroke in real-time
       const strokePoints = getStroke(this.drawPoints, {
         size: this.options.size,
         thinning: this.options.thinning,
@@ -104,6 +108,9 @@ class SmartBrushCanvas {
 
     this.canvas.addEventListener('pointerup', e => {
       if (!this.drawStart) return;
+      const getStroke = this.getStrokeFn();
+      if (!getStroke) return;
+
       const strokePoints = getStroke(this.drawPoints, {
         size: this.options.size,
         thinning: this.options.thinning,
